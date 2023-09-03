@@ -4,85 +4,100 @@
 #include <algorithm>
 #include <spdlog/spdlog.h>
 #include <vector>
+#include <map>
+#include <array>
+
+struct Sound {
+    float frequency;
+    float phase;
+    float vol;
+};
 
 const double SAMPLERATE = 44100.0;
 
-float vol = 0.5;
-float vol_step = 0;
-std::vector<float> freqs_to_add = {}; // Initial freqs
-std::vector<float> freqs_to_rem = {};
-std::vector<float> freqs = {}; // Initial freqs
-std::vector<float> phases = {}; // Phases for each frequency
+std::array<float, 256> key_freq_map = {};
+std::vector<Note> note_on_buffer = {};
+std::vector<Note> note_off_buffer = {};
+std::array<std::optional<Sound>, 256> playing_notes;
 
-float target_vol = vol;
+void initialize_key_freq_map(std::array<float, 256> map) {
+    key_freq_map = map;
+}
 
-bool vol_changing = false;
+float gain = 0.5;
+float target_gain = gain;
+float gain_step = 0;
+bool gain_changing = false;
+
+std::string note_buffer_to_string(std::vector<Note> note_buffer){
+    std::string nb_string = "";
+    for (int i = 0; i < note_buffer.size(); ++i) {
+        nb_string = fmt::format("{} {}", nb_string, note_buffer[i].key);
+    }
+    return nb_string;
+}
+
+void note_on(Note note) {
+    spdlog::debug("note on key:{} vel:{:.2f}", note.key, note.velocity);
+    if (note.key >= 0 && note.key < 256) {
+        note_on_buffer.push_back(note);
+        spdlog::debug("+ {}", note_buffer_to_string(note_on_buffer));
+        spdlog::debug("- {}", note_buffer_to_string(note_off_buffer));
+    }
+}
+
+void note_off(Note note) {
+    spdlog::debug("note off key:{}", note.key, note.velocity);
+    if (note.key >= 0 && note.key < 256) {
+        note_off_buffer.push_back(note);
+        spdlog::debug("+ {}", note_buffer_to_string(note_on_buffer));
+        spdlog::debug("- {}", note_buffer_to_string(note_off_buffer));
+    }
+}
+
+void update_sounds() {
+    unsigned short on_buffer_size = note_on_buffer.size();
+    unsigned short off_buffer_size = note_off_buffer.size();
+
+    for (unsigned short i = 0; i < on_buffer_size; ++i) {
+        if (!playing_notes[note_on_buffer[i].key].has_value()){
+            playing_notes[note_on_buffer[i].key] = {
+                    .frequency = key_freq_map[note_on_buffer[i].key],
+                    .vol = note_on_buffer[i].velocity / 255,
+                    .phase = 0
+            };
+        }
+    }
+
+    for (unsigned short i = 0; i < off_buffer_size; ++i) {
+        playing_notes[note_off_buffer[i].key] = {};
+    }
+
+    // Remove the frequencies that were processed
+    note_on_buffer.erase(note_on_buffer.begin(), note_on_buffer.begin() + on_buffer_size);
+    note_off_buffer.erase(note_off_buffer.begin(), note_off_buffer.begin() + off_buffer_size);
+}
+
 void change_volume(float amount, float period) {
-    vol_step = amount / (SAMPLERATE*period/1000); //(/ms)
-    target_vol = std::clamp(vol + amount, 0.0f, 1.0f);
-    vol_changing = true;
-    spdlog::debug("target vol = {:.2f} | step = {:.2f} ", target_vol, vol_step*1000);
+    gain_step = amount / (SAMPLERATE * period / 1000); //(1/ms)
+    target_gain = std::clamp(gain + amount, 0.0f, 1.0f);
+    gain_changing = true;
+    spdlog::debug("target gain = {:.2f} | step = {:.2f} ", target_gain, gain_step * 1000);
 }
 
 void update_volume() {
-    if (vol_changing) {
-        // Compute the new volume
-        float new_vol = vol + vol_step;
+    if (gain_changing) {
+        float new_vol = gain + gain_step;
 
-        // Check if the new volume crosses or reaches the target volume
-        if ((vol_step > 0 && new_vol >= target_vol) || (vol_step < 0 && new_vol <= target_vol)) {
-            vol = target_vol;
-            vol_changing = false;
-            spdlog::debug("vol == target vol");
+        if ((gain_step > 0 && new_vol >= target_gain) || (gain_step < 0 && new_vol <= target_gain)) {
+            gain = target_gain;
+            gain_changing = false;
+            spdlog::debug("gain == target gain");
         } else {
-            vol = new_vol;
+            gain = new_vol;
         }
     }
 }
-
-std::string vec_to_string(const std::vector<float>& vec) {
-    std::string result;
-    result.reserve(vec.size() * 6);
-    for (const auto& elem : vec) {
-        result +=  fmt::format("{:3.1f} ", elem);
-    }
-    return result;
-}
-void frequency_on(float freq) {
-    spdlog::debug("frequency on {:.2f}", freq);
-    freqs_to_add.push_back(freq);
-}
-
-void frequency_off(float freq) {
-    spdlog::debug("frequency off {:.2f}", freq);
-    freqs_to_rem.push_back(freq);
-}
-
-void update_freqs() {
-    for (unsigned short i = 0; i < freqs_to_add.size(); ++i){
-        auto it = std::find(
-                freqs.begin(), freqs.end(), freqs_to_add[i]);
-        freqs_to_add.pop_back();
-        if (it == freqs.end()) {
-            spdlog::debug("adding {:.2f}", freqs_to_add[i]);
-            freqs.push_back(freqs_to_add[i]);
-            phases.push_back(0);
-            spdlog::debug(vec_to_string(freqs));
-        }
-    }
-    for (unsigned short i = 0; i < freqs_to_rem.size(); ++i){
-        auto it = std::find(
-                freqs.begin(), freqs.end(), freqs_to_rem[i]);
-        freqs_to_rem.pop_back();
-        if (it != freqs.end()) {
-            size_t index = std::distance(freqs.begin(), it);
-            freqs.erase(it);
-            phases.erase(phases.begin() + index);
-            spdlog::debug(vec_to_string(freqs));
-        }
-    }
-}
-
 
 int audioCallback(const void *inputBuffer, void *outputBuffer,
                   unsigned long framesPerBuffer,
@@ -93,21 +108,21 @@ int audioCallback(const void *inputBuffer, void *outputBuffer,
     float *out = (float *)outputBuffer;
 
     update_volume();
-    update_freqs();
+    update_sounds();
 
     for (unsigned long i = 0; i < framesPerBuffer; ++i)
     {
         float sample = 0.0;
-        for (size_t j = 0; j < freqs.size(); ++j)
+        for (size_t j = 0; j < playing_notes.size(); ++j)
         {
-            double phaseIncrement = 2.0 * M_PI * freqs[j] / SAMPLERATE;
-            sample += (float)sin(phases[j]);
-            phases[j] += phaseIncrement;
-            phases[j] = std::fmod(phases[j], 2.0 * M_PI);
+            double phaseIncrement = 2.0 * M_PI * playing_notes[j]->frequency / SAMPLERATE;
+            sample += playing_notes[j]->vol *(float)sin(playing_notes[j]->phase);
+            playing_notes[j]->phase += phaseIncrement;
+            playing_notes[j]->phase = std::fmod(playing_notes[j]->phase, 2.0 * M_PI);
         }
 
-        *out++ = sample * vol; // Left channel
-        *out++ = sample * vol; // Right channel
+        *out++ = sample * gain; // Left channel
+        *out++ = sample * gain; // Right channel
     }
 
     return paContinue;
