@@ -5,6 +5,10 @@
 
 void change_volume(float amount, float period);
 
+void frequency_on(float frequency);
+
+void frequency_off(float frequency);
+
 int audioCallback(const void *inputBuffer, void *outputBuffer,
                   unsigned long framesPerBuffer,
                   const PaStreamCallbackTimeInfo *timeInfo,

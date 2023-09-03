@@ -1,7 +1,6 @@
 #include <portaudio.h>
 #include <FL/Fl.H>
 #include <FL/Fl_Window.H>
-#include <thread>
 #include "AudioEngine.h"
 #include <spdlog/spdlog.h>
 #include <map>
@@ -10,7 +9,7 @@
 
 class MyWindow : public Fl_Window {
 
-    // Define the frequencies for the musical notes C, D, E, F, G, A, B, C, D, E, F
+    // Define the freqs for the musical notes C, D, E, F, G, A, B, C, D, E, F
     std::map<char, double> noteFrequencies = {
             {'a', 261.63},  // C
             {'s', 293.66},  // D
@@ -31,6 +30,17 @@ class MyWindow : public Fl_Window {
         switch (event) {
             int key;
             case FL_KEYDOWN:  // keyboard key pressed
+                key = Fl::event_key();
+                switch (key) {
+                    default: // note on
+                        // Check if the key is in the noteFrequencies map
+                        auto it = noteFrequencies.find(static_cast<char>(key));
+                        if (it != noteFrequencies.end()) {
+                            frequency_on(it->second);
+                            return 1;
+                        }
+                }
+                return Fl_Window::handle(event);
             case FL_KEYUP:    // keyboard key released
                 key = Fl::event_key();
                 switch (key) {
@@ -40,11 +50,11 @@ class MyWindow : public Fl_Window {
                     case '\\':
                         change_volume(-0.1, 1);
                         return 1;
-                    default:
+                    default: // note off
                         // Check if the key is in the noteFrequencies map
                         auto it = noteFrequencies.find(static_cast<char>(key));
                         if (it != noteFrequencies.end()) {
-                            frequency = it->second;
+                            frequency_off(it->second);
                             return 1;
                         }
                         return Fl_Window::handle(event);
