@@ -48,6 +48,8 @@ class MyWindow : public Fl_Window {
 
 
     MyVerticalDial *attack_dial, *decay_dial, *sustain_dial, *release_dial;
+    MyVerticalDial *lfo_freq_dial, *lfo_amp_dial;
+    MyVerticalDial *sine_dial, *saw_dial, *square_dial;
     Fl_Output *attack_out, *decay_out, *sustain_out, *release_out;
     std::array<int, 256> key_remap = {};
 
@@ -57,7 +59,7 @@ class MyWindow : public Fl_Window {
         MyWindow(int w, int h) : Fl_Window(w, h) {
 
 
-            // create key map
+            // create key map (colemak)
             key_remap[97] = 0;
             key_remap[114] = 1;
             key_remap[115] = 2;
@@ -71,28 +73,35 @@ class MyWindow : public Fl_Window {
             key_remap[39] = 10;
 
             std::array<float, 256> key_note_map = {};
-            key_note_map[0] = 261.63/2;  // C
-            key_note_map[1] = 293.66/2;  // D
-            key_note_map[2] = 329.63/2;  // E
-            key_note_map[3] = 349.23/2;  // F
-            key_note_map[4] = 392.00/2;  // G
-            key_note_map[5] = 440.00/2;  // A
-            key_note_map[6] = 493.88/2;  // B
-            key_note_map[7] = 523.25/2;  // C
-            key_note_map[8] = 587.33/2;  // D
-            key_note_map[9] = 659.25/2;  // E
+            key_note_map[0] = 261.63/1000;  // C
+            key_note_map[1] = 293.66/1000;  // D
+            key_note_map[2] = 329.63/1000;  // E
+            key_note_map[3] = 349.23/1000;  // F
+            key_note_map[4] = 392.00/1000;  // G
+            key_note_map[5] = 440.00/1000;  // A
+            key_note_map[6] = 493.88/1000;  // B
+            key_note_map[7] = 523.25/1000;  // C
+            key_note_map[8] = 587.33/1000;  // D
+            key_note_map[9] = 659.25/1000;  // E
             initialize_key_freq_map(key_note_map);
 
             Envelope env = {.attack=50, .decay=20, .sustain=0.3, .release= 500};
             set_envelope(env);
-
-
-            float A_min = 0.0001;
+            float frequency=0.002;
+            float amplitude=0.1;
+            set_LFO(frequency, amplitude);
+            float A_min = 1;
             float A_max = 1000.0;
             float D_min = 1.0;
             float D_max = 1000;
+            float S_min = 0;
+            float S_max = 1;
             float R_min = 1;
             float R_max = 1000;
+            float freq_min = 0.001;
+            float freq_max = 0.01;
+            float amp_min = 0;
+            float amp_max = 1.0;
 
 
             attack_dial = new MyVerticalDial(10, 10, 50, 50, A_min, A_max,  "Attack");
@@ -103,7 +112,7 @@ class MyWindow : public Fl_Window {
             decay_dial->type(FL_FILL_DIAL);
             decay_dial->callback(dial_cb, (void*)this);
 
-            sustain_dial = new MyVerticalDial(130, 10, 50, 50, 0, 1, "Sustain");
+            sustain_dial = new MyVerticalDial(130, 10, 50, 50, S_min, S_max, "Sustain");
             sustain_dial->type(FL_FILL_DIAL);
             sustain_dial->callback(dial_cb, (void*)this);
 
@@ -115,6 +124,40 @@ class MyWindow : public Fl_Window {
             decay_dial->value(env.decay);
             sustain_dial->value(env.sustain);
             release_dial->value(env.release);
+
+            Fl_Group *lfo_group = new Fl_Group(260, 10, 180, 100, "LFO");
+            lfo_group->box(FL_UP_BOX); // make it an up box
+            lfo_group->align(FL_ALIGN_TOP | FL_ALIGN_INSIDE); // label alignment
+
+            lfo_freq_dial = new MyVerticalDial(290, 30, 50, 50, freq_min, freq_max, "Frequency");
+            lfo_freq_dial->type(FL_FILL_DIAL);
+            lfo_freq_dial->callback(dial_cb, (void*)this); // You may create a different callback function for LFO dials
+            lfo_freq_dial->value(frequency);
+
+            lfo_amp_dial = new MyVerticalDial(370, 30, 50, 50, amp_min, amp_max, "Amplitude");
+            lfo_amp_dial->type(FL_FILL_DIAL);
+            lfo_amp_dial->callback(dial_cb, (void*)this); // You may create a different callback function for LFO dials
+            lfo_amp_dial->value(amplitude);
+
+            lfo_group->end();
+
+            float dial_min = 0.0f;
+            float dial_max = 1.0f;
+            sine_dial = new MyVerticalDial(460, 10, 50, 50, dial_min, dial_max, "Sine");
+            sine_dial->type(FL_FILL_DIAL);
+            sine_dial->callback(dial_cb, (void*)this);
+            sine_dial->value(1); // p_sin is your global variable
+
+            saw_dial = new MyVerticalDial(520, 10, 50, 50, dial_min, dial_max, "Saw");
+            saw_dial->type(FL_FILL_DIAL);
+            saw_dial->callback(dial_cb, (void*)this);
+            saw_dial->value(1); // p_saw is your global variable
+
+            square_dial = new MyVerticalDial(580, 10, 50, 50, dial_min, dial_max, "Square");
+            square_dial->type(FL_FILL_DIAL);
+            square_dial->callback(dial_cb, (void*)this);
+            square_dial->value(1); // p_square is your global variable
+
 
 
             end();
@@ -156,6 +199,28 @@ class MyWindow : public Fl_Window {
         };
 
         set_envelope(env);
+
+        float frequency = win->lfo_freq_dial->value();
+        float amplitude = win->lfo_amp_dial->value();
+
+        set_LFO(frequency, amplitude);
+
+        float sine_val = win->sine_dial->value();
+        float saw_val = win->saw_dial->value();
+        float square_val = win->square_dial->value();
+        float total = sine_val + saw_val + square_val;
+
+        // Safeguard against division by zero
+        if (total == 0.0f) {
+            total = 1.0f;
+        }
+
+        float p_sin = sine_val / total;
+        float p_saw = saw_val / total;
+        float p_square = square_val / total;
+
+        set_waveform(p_sin, p_saw, p_square);
+
     }
 };
 
@@ -178,7 +243,7 @@ int main() {
     err = Pa_StartStream(stream);
     if (err != paNoError){ return 1; }
 
-    MyWindow *window = new MyWindow(340, 180);
+    MyWindow *window = new MyWindow(640, 180);
 
     window->end();
     window->show();
