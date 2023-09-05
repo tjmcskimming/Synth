@@ -36,6 +36,8 @@ void set_LFO(float frequency, float magnitude);
 
 void set_waveform(float p_sin, float p_saw, float s_square);
 
+void set_filter_alpha(float alpha);
+
 int audioCallback(const void *inputBuffer, void *outputBuffer,
                   unsigned long framesPerBuffer,
                   const PaStreamCallbackTimeInfo *timeInfo,

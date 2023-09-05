@@ -50,9 +50,8 @@ class MyWindow : public Fl_Window {
     MyVerticalDial *attack_dial, *decay_dial, *sustain_dial, *release_dial;
     MyVerticalDial *lfo_freq_dial, *lfo_amp_dial;
     MyVerticalDial *sine_dial, *saw_dial, *square_dial;
-    Fl_Output *attack_out, *decay_out, *sustain_out, *release_out;
+    MyVerticalDial *alpha_dial;
     std::array<int, 256> key_remap = {};
-
 
     public:
 
@@ -158,7 +157,15 @@ class MyWindow : public Fl_Window {
             square_dial->callback(dial_cb, (void*)this);
             square_dial->value(1); // p_square is your global variable
 
+            // New dial for LFO alpha, assuming a minimum value of 0 and a maximum value of 1 for alpha
+            float alpha_min = 0.0f;
+            float alpha_max = 1.0f;
 
+            // Adding this dial inside the LFO group for logical grouping
+            alpha_dial = new MyVerticalDial(530, 80, 70, 70, alpha_min, alpha_max, "Alpha");
+            alpha_dial->type(FL_FILL_DIAL);
+            alpha_dial->callback(dial_cb, (void*)this);
+            alpha_dial->value(0.5); // Initial value
 
             end();
 
@@ -221,6 +228,11 @@ class MyWindow : public Fl_Window {
 
         set_waveform(p_sin, p_saw, p_square);
 
+        // Retrieve filter alpha value
+        float alpha = win->alpha_dial->value();
+
+        // Your code to set the LFO alpha value (replace the function set_LFO_alpha)
+        set_filter_alpha(alpha);
     }
 };
 

@@ -44,6 +44,8 @@ float p_saw = 0;
 float p_sin = 0;
 float p_square = 1;
 
+float filter_alpha = 0.05f;
+
 void initialize_key_freq_map(std::array<float, 256> map) {
     key_freq_map = map;
 }
@@ -58,6 +60,9 @@ void set_waveform(float sin, float saw, float square) {
     p_saw = saw;
 }
 
+void set_filter_alpha(float alpha){
+    filter_alpha = alpha;
+}
 
 std::string note_buffer_to_string(std::vector<Note> note_buffer){
     std::string nb_string = "";
@@ -163,7 +168,6 @@ void update_sounds() {
 }
 
 static float last_sample = 0.0f;
-float alpha = 0.05f;
 
 int audioCallback(const void *inputBuffer, void *outputBuffer,
                   unsigned long framesPerBuffer,
@@ -224,7 +228,7 @@ int audioCallback(const void *inputBuffer, void *outputBuffer,
             }
         }
 
-        sample = (1-alpha) * last_sample + alpha * sample;
+        sample = (1-filter_alpha) * last_sample + filter_alpha * sample;
         last_sample = sample;
 
         double lfo_phase_increment = 2.0 * M_PI * lfo.frequency / SAMPLERATE_kHz;
