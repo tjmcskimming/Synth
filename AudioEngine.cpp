@@ -175,10 +175,52 @@ void update_sounds() {
         }
     }
 
+    // state transitions
+    std::vector<size_t> toRemove;
+    for (size_t j = 0; j < playing_sounds.size(); ++j) {  // Changed the loop to use index
+        auto& opt_sound = playing_sounds[j];
+        if (!opt_sound.has_value()) continue;
+        Sound& sound = opt_sound.value();
+        if (!sound.note_on) {
+            sound.stage = RELEASE;
+            sound.vol_step = -(sound.max_vol*envelope.sustain)
+                             /(SAMPLERATE_kHz * envelope.release);
+            //spdlog::debug("enter RELEASE, vol_step {} ", sound.vol_step);
+        }
+        switch(sound.stage){
+            case ATTACK:
+                if (sound.vol >= sound.max_vol) {
+                    sound.stage = DECAY;
+                    sound.vol_step = -sound.max_vol*(1-(envelope.sustain))
+                                     /(SAMPLERATE_kHz * envelope.decay);
+                    //spdlog::debug("enter DECAY, vol_step {} ", sound.vol_step);
+                }
+                break;
+            case DECAY:
+                if (sound.vol <= sound.max_vol*envelope.sustain) {
+                    sound.stage = SUSTAIN;
+                    sound.vol_step = 0;
+                    spdlog::debug("enter SUSTAIN, vol_step {} ", sound.vol_step);
+                }
+                break;
+            case SUSTAIN:
+
+                break;
+            case RELEASE:
+                if (sound.vol <= 0) {
+                    toRemove.push_back(j);  // Add this line to mark for removal
+                    //spdlog::debug("note over");
+                }
+                break;
+        }
+    }
+
     // Remove the frequencies that were processed
     note_on_buffer.erase(note_on_buffer.begin(), note_on_buffer.begin() + on_buffer_size);
     note_off_buffer.erase(note_off_buffer.begin(), note_off_buffer.begin() + off_buffer_size);
-
+    for (auto index : toRemove) {
+        playing_sounds[index] = std::nullopt;
+    }
 }
 
 // Initialize variables to keep track of previous inputs and outputs
@@ -192,89 +234,51 @@ int audioCallback(const void *inputBuffer, void *outputBuffer,
                   PaStreamCallbackFlags statusFlags,
                   void *userData) {
 
+    double lfo_phase_increment = 2.0 * M_PI * vol_lfo.frequency / SAMPLERATE_kHz;
+    double filter_cutoff_lfo_phase_increment = 2.0 * M_PI * filter_cutoff_lfo.frequency / SAMPLERATE_kHz;
+
     float *out = (float *)outputBuffer;
+
     update_volume();
     update_sounds();
     update_filter_coefficients();
 
-    std::vector<size_t> toRemove;
     for (unsigned long i = 0; i < framesPerBuffer; ++i) {
         float sample = 0.0;
-        for (size_t j = 0; j < playing_sounds.size(); ++j) {  // Changed the loop to use index
+        for (size_t j = 0; j < playing_sounds.size(); ++j) {
             auto& opt_sound = playing_sounds[j];
             if (!opt_sound.has_value()) continue;
             Sound& sound = opt_sound.value();
+            sound.vol = std::clamp(sound.vol + sound.vol_step, 0.0f, sound.max_vol);
+            sample += p_sin * sound.vol * static_cast<float>(std::sin(sound.phase));
+            sample += p_saw * sound.vol * static_cast<float>((2.0 / M_PI) * (sound.phase - M_PI));
+            sample += p_square * sound.vol * static_cast<float>((sound.phase < M_PI) ? 1.0 : -1.0);
             double phase_increment = 2.0 * M_PI * sound.frequency / SAMPLERATE_kHz;
-            sample += p_sin*sound.vol * static_cast<float>(std::sin(sound.phase));
-            sample += p_saw*sound.vol * static_cast<float>((2.0 / M_PI) * (sound.phase - M_PI));
-            sample += p_square*sound.vol * static_cast<float>((sound.phase < M_PI) ? 1.0 : -1.0);
-
             sound.phase += phase_increment;
             sound.phase = std::fmod(sound.phase, 2.0 * M_PI);
-            sound.vol = std::clamp(sound.vol + sound.vol_step, 0.0f, sound.max_vol);
-            if (!sound.note_on) {
-                sound.stage = RELEASE;
-                sound.vol_step = -(sound.max_vol*envelope.sustain)
-                                 /(SAMPLERATE_kHz * envelope.release);
-                //spdlog::debug("enter RELEASE, vol_step {} ", sound.vol_step);
-            }
-            switch(sound.stage){
-                case ATTACK:
-                     if (sound.vol >= sound.max_vol) {
-                        sound.stage = DECAY;
-                        sound.vol_step = -sound.max_vol*(1-(envelope.sustain))
-                                /(SAMPLERATE_kHz * envelope.decay);
-                        //spdlog::debug("enter DECAY, vol_step {} ", sound.vol_step);
-                    }
-                     break;
-                case DECAY:
-                    if (sound.vol <= sound.max_vol*envelope.sustain) {
-                        sound.stage = SUSTAIN;
-                        sound.vol_step = 0;
-                        spdlog::debug("enter SUSTAIN, vol_step {} ", sound.vol_step);
-                    }
-                    break;
-                case SUSTAIN:
-
-                    break;
-                case RELEASE:
-                    if (sound.vol <= 0) {
-                        toRemove.push_back(j);  // Add this line to mark for removal
-                        //spdlog::debug("note over");
-                    }
-                    break;
-            }
         }
 
-        double lfo_phase_increment = 2.0 * M_PI * vol_lfo.frequency / SAMPLERATE_kHz;
+        // Apply LFO to volume
         sample = sample + sample * vol_lfo.amplitude * static_cast<float>(std::sin(vol_lfo.phase));
-        vol_lfo.phase += lfo_phase_increment;
 
-        update_filter_coefficients();
-        double filter_cutoff_lfo_phase_increment = 2.0 * M_PI * filter_cutoff_lfo.frequency / SAMPLERATE_kHz;
-        filter_cutoff_lfo.phase += filter_cutoff_lfo_phase_increment;
-
-        //spdlog::debug("xxx{}", sample);
         // Apply second-order low-pass filter
         sample = (b0 / a0) * sample + (b1 / a0) * last_input + (b2 / a0) * last_input2
                        - (a1 / a0) * last_output - (a2 / a0) * last_output2;
-
-        //spdlog::debug("{}", sample);
-
         // Update previous inputs and outputs
         last_input2 = last_input;
         last_input = sample;  // Assuming 'sample' was the input
         last_output2 = last_output;
         last_output = sample;
 
+        vol_lfo.phase += lfo_phase_increment;
+        vol_lfo.phase = std::fmod(vol_lfo.phase, 2.0 * M_PI);
+        filter_cutoff_lfo.phase += filter_cutoff_lfo_phase_increment;
+        filter_cutoff_lfo.phase = std::fmod(filter_cutoff_lfo.phase, 2.0 * M_PI);
 
         *out++ = sample * gain; // Left channel
         *out++ = sample * gain; // Right channel
     }
 
-    for (auto index : toRemove) {
-        playing_sounds[index] = std::nullopt;
-    }
     return paContinue;
 }
 
