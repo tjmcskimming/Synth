@@ -10,6 +10,24 @@ enum EnvelopeStage {
     ATTACK, DECAY, SUSTAIN, RELEASE
 };
 
+struct Note {
+        int key;
+        int velocity;
+};
+
+struct Envelope {
+    float attack;
+    float decay;
+    float sustain;
+    float release;
+};
+
+struct LFO {
+    float frequency;
+    float amplitude;
+    float phase;
+};
+
 struct Sound {
     float frequency;
     float phase;
@@ -20,18 +38,10 @@ struct Sound {
     EnvelopeStage stage;
 };
 
-
 LFO lfo = {.frequency = 0, .amplitude = 0, .phase = 0 };
-
-void set_LFO(float frequency, float magnitude) {
-    lfo.frequency = frequency;
-    lfo.amplitude = magnitude;
-}
-const float SAMPLERATE_kHz = 44.1;
-
 std::array<float, 256> key_freq_map = {};
 std::vector<Note> note_on_buffer = {};
-std::vector<Note> note_off_buffer = {};
+std::vector<unsigned short> note_off_buffer = {};
 std::array<std::optional<Sound>, 256> playing_sounds;
 Envelope envelope = {.attack=0, .decay=0,.sustain=0,.release=0};
 
@@ -44,14 +54,28 @@ float p_saw = 0;
 float p_sin = 0;
 float p_square = 1;
 
-float filter_alpha = 0.05f;
+// Coefficients for your filter (these should be calculated based on your desired cutoff and Q)
+float a0 = 0.1;
+float a1 = 0.1;
+float a2 = 0.1;
+float b0 = 0.1;
+float b1 = 0.1;
+float b2 = 0.1;
+
+void set_LFO(float frequency, float magnitude) {
+    lfo.frequency = frequency;
+    lfo.amplitude = magnitude;
+}
 
 void initialize_key_freq_map(std::array<float, 256> map) {
     key_freq_map = map;
 }
 
-void set_envelope(Envelope env) {
-    envelope = env;
+void set_envelope(float attack, float decay, float sustain, float release) {
+    envelope.attack = attack;
+    envelope.decay = decay;
+    envelope.sustain = sustain;
+    envelope.release = release;
 }
 
 void set_waveform(float sin, float saw, float square) {
@@ -60,8 +84,27 @@ void set_waveform(float sin, float saw, float square) {
     p_saw = saw;
 }
 
-void set_filter_alpha(float alpha){
-    filter_alpha = alpha;
+void set_filter_alpha(float cutoff_freq, float Q){
+    float omega = 2.0 * M_PI * cutoff_freq / SAMPLERATE_kHz;  // Angular frequency
+    float alpha = std::sin(omega) / (2.0 * Q);  // Bandwidth
+
+    // Calculate the coefficients
+    b0 = (1 - std::cos(omega)) / 2.0;
+    b1 = 1 - std::cos(omega);
+    b2 = (1 - std::cos(omega)) / 2.0;
+    a0 = 1 + alpha;
+    a1 = -2 * std::cos(omega);
+    a2 = 1 - alpha;
+
+    // Normalize the coefficients
+    b0 /= a0;
+    b1 /= a0;
+    b2 /= a0;
+    a1 /= a0;
+    a2 /= a0;
+    a0 = 1.0;
+
+    spdlog::debug("{:.2f} {:.2f} {:.2f} {:.2f} {:.2f} {:.2f} ", a0, a1, a2, b0, b1, b2);
 }
 
 std::string note_buffer_to_string(std::vector<Note> note_buffer){
@@ -94,19 +137,19 @@ void update_volume() {
     }
 }
 
-void note_on(Note note) {
+void note_on(unsigned short key, unsigned short velocity) {
     //spdlog::debug("note on key:{} vel:{:.2f}", note.key, note.velocity);
-    if (note.key >= 0 && note.key < 256) {
-        note_on_buffer.push_back(note);
+    if (key >= 0 && key < 256) {
+        note_on_buffer.push_back({.key=key, .velocity=velocity});
         //spdlog::debug("+ {}", note_buffer_to_string(note_on_buffer));
         //spdlog::debug("- {}", note_buffer_to_string(note_off_buffer));
     }
 }
 
-void note_off(Note note) {
+void note_off(unsigned short key) {
     //spdlog::debug("note off key:{}", note.key, note.velocity);
-    if (note.key >= 0 && note.key < 256) {
-        note_off_buffer.push_back(note);
+    if (key >= 0 && key < 256) {
+        note_off_buffer.push_back(key);
         //spdlog::debug("+ {}", note_buffer_to_string(note_on_buffer));
         //spdlog::debug("- {}", note_buffer_to_string(note_off_buffer));
     }
@@ -121,7 +164,7 @@ void update_sounds() {
         // Check if sound is active
         if (!playing_sounds[note_on_buffer[i].key].has_value()) {
             // Sound is not active, start sound
-            float max_vol = note_on_buffer[i].velocity / 255;
+            float max_vol = note_on_buffer[i].velocity / 255.0f;
             playing_sounds[note_on_buffer[i].key] = {
                     .note_on = true, // key is pressed (distinct from sound is playing)
                     .stage = ATTACK, // attack phase
@@ -150,8 +193,8 @@ void update_sounds() {
         // set note on to false,
         // leave volume and phase, frequency, max_vol
         // enter release phase
-        if (playing_sounds[note_off_buffer[i].key].has_value()) {
-            Sound &sound = *playing_sounds[note_off_buffer[i].key];
+        if (playing_sounds[note_off_buffer[i]].has_value()) {
+            Sound &sound = *playing_sounds[note_off_buffer[i]];
             sound.note_on = false;
             sound.stage = RELEASE;
             sound.vol_step = -(sound.max_vol * envelope.sustain) / (SAMPLERATE_kHz * envelope.release);
@@ -167,8 +210,11 @@ void update_sounds() {
 
 }
 
-static float last_sample = 0.0f;
-
+// Initialize variables to keep track of previous inputs and outputs
+static float last_input = 0.0f;
+static float last_input2 = 0.0f;
+static float last_output = 0.0f;
+static float last_output2 = 0.0f;
 int audioCallback(const void *inputBuffer, void *outputBuffer,
                   unsigned long framesPerBuffer,
                   const PaStreamCallbackTimeInfo *timeInfo,
@@ -228,8 +274,18 @@ int audioCallback(const void *inputBuffer, void *outputBuffer,
             }
         }
 
-        sample = (1-filter_alpha) * last_sample + filter_alpha * sample;
-        last_sample = sample;
+        //spdlog::debug("xxx{}", sample);
+        // Apply second-order low-pass filter
+        sample = (b0 / a0) * sample + (b1 / a0) * last_input + (b2 / a0) * last_input2
+                       - (a1 / a0) * last_output - (a2 / a0) * last_output2;
+
+        //spdlog::debug("{}", sample);
+
+        // Update previous inputs and outputs
+        last_input2 = last_input;
+        last_input = sample;  // Assuming 'sample' was the input
+        last_output2 = last_output;
+        last_output = sample;
 
         double lfo_phase_increment = 2.0 * M_PI * lfo.frequency / SAMPLERATE_kHz;
         sample = sample + sample*lfo.amplitude*static_cast<float>(std::sin(lfo.phase));
