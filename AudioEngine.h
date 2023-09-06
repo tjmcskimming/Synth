@@ -19,9 +19,11 @@ void set_envelope(float attack, float decay, float sustain, float release);
 
 void set_LFO(float frequency, float magnitude);
 
+void set_cutoff_lfo(float frequency, float magnitude);
+
 void set_waveform(float p_sin, float p_saw, float s_square);
 
-void set_filter_alpha(float cutoff, float Q);
+void set_filter(float cutoff, float Q);
 
 int audioCallback(const void *inputBuffer, void *outputBuffer,
                   unsigned long framesPerBuffer,

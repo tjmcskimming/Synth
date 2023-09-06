@@ -48,6 +48,7 @@ class MyWindow : public Fl_Window {
 
     MyVerticalDial *attack_dial, *decay_dial, *sustain_dial, *release_dial;
     MyVerticalDial *lfo_freq_dial, *lfo_amp_dial;
+    MyVerticalDial *cutoff_lfo_freq_dial, *cutoff_lfo_amp_dial;
     MyVerticalDial *sine_dial, *saw_dial, *square_dial;
     MyVerticalDial *cutoff_dial, *Q_dial;
     std::array<int, 256> key_remap = {};
@@ -69,16 +70,16 @@ class MyWindow : public Fl_Window {
             key_remap[39] = 10;
 
             std::array<float, 256> key_note_map = {};
-            key_note_map[0] = 261.63/4000;  // C
-            key_note_map[1] = 293.66/4000;  // D
-            key_note_map[2] = 329.63/4000;  // E
-            key_note_map[3] = 349.23/4000;  // F
-            key_note_map[4] = 392.00/4000;  // G
-            key_note_map[5] = 440.00/4000;  // A
-            key_note_map[6] = 493.88/4000;  // B
-            key_note_map[7] = 523.25/4000;  // C
-            key_note_map[8] = 587.33/4000;  // D
-            key_note_map[9] = 659.25/4000;  // E
+            key_note_map[0] = 261.63/2000;  // C
+            key_note_map[1] = 293.66/2000;  // D
+            key_note_map[2] = 329.63/2000;  // E
+            key_note_map[3] = 349.23/2000;  // F
+            key_note_map[4] = 392.00/2000;  // G
+            key_note_map[5] = 440.00/2000;  // A
+            key_note_map[6] = 493.88/2000;  // B
+            key_note_map[7] = 523.25/2000;  // C
+            key_note_map[8] = 587.33/2000;  // D
+            key_note_map[9] = 659.25/2000;  // E
             initialize_key_freq_map(key_note_map);
 
             float attack_min = 1;
@@ -99,6 +100,10 @@ class MyWindow : public Fl_Window {
             float cutoff_max = 20;
             float Q_min = 0.1;
             float Q_max = 5;
+            float cutoff_lfo_freq_min = 0.0001;
+            float cutoff_lfo_freq_max = 0.01;
+            float cutoff_lfo_amp_min = 0;
+            float cutoff_lfo_amp_max = 1.0;
 
             float sine_wave_set = 0.5;
             float square_wave_set = 0.5;
@@ -109,8 +114,10 @@ class MyWindow : public Fl_Window {
             float release_set = 50;
             float lfo_freq_set = 0.008;
             float lfo_amp_set = 0.2;
+            float cutoff_lfo_freq_set = 0.008;
+            float cutoff_lfo_amp_set = 0.2;
             float filter_cutoff_set = 5;
-            float filter_q_set=1;
+            float filter_q_set=0.5;
 
             attack_dial = new MyVerticalDial(10, 10, 50, 50, attack_min, attack_max, "Attack");
             attack_dial->type(FL_FILL_DIAL);
@@ -147,6 +154,19 @@ class MyWindow : public Fl_Window {
             lfo_amp_dial->callback(dial_cb, (void*)this); // You may create a different callback function for LFO dials
             lfo_amp_dial->value(lfo_amp_set);
 
+            Fl_Group *cutoff_lfo_group = new Fl_Group(260, 210, 180, 100, "LFO");
+            cutoff_lfo_group->box(FL_BORDER_BOX); // make it an up box
+            cutoff_lfo_group->align(FL_ALIGN_TOP | FL_ALIGN_INSIDE); // label alignment
+            cutoff_lfo_group->end();
+            cutoff_lfo_freq_dial = new MyVerticalDial(290, 230, 50, 50, cutoff_lfo_freq_min, cutoff_lfo_freq_max, "Frequency");
+            cutoff_lfo_freq_dial->type(FL_FILL_DIAL);
+            cutoff_lfo_freq_dial->callback(dial_cb, (void*)this); // You may create a different callback function for LFO dials
+            cutoff_lfo_freq_dial->value(cutoff_lfo_freq_set);
+
+            cutoff_lfo_amp_dial = new MyVerticalDial(370, 230, 50, 50, cutoff_lfo_amp_min,cutoff_lfo_amp_max, "Amplitude");
+            cutoff_lfo_amp_dial->type(FL_FILL_DIAL);
+            cutoff_lfo_amp_dial->callback(dial_cb, (void*)this); // You may create a different callback function for LFO dials
+            cutoff_lfo_amp_dial->value(cutoff_lfo_amp_set);
 
             sine_dial = new MyVerticalDial(460, 10, 50, 50, wave_min, wave_max, "Sine");
             sine_dial->type(FL_FILL_DIAL);
@@ -173,10 +193,11 @@ class MyWindow : public Fl_Window {
             Q_dial->callback(dial_cb, (void*)this);
             Q_dial->value(filter_q_set); // Initial value
 
-            set_filter_alpha(filter_cutoff_set,filter_q_set);
+            set_filter(filter_cutoff_set, filter_q_set);
             set_envelope(attack_set, decay_set, sustain_set, release_set);
             set_LFO(lfo_freq_set, lfo_amp_set);
             set_waveform(sine_wave_set,saw_wave_set,square_wave_set);
+            set_cutoff_lfo(cutoff_lfo_freq_set, cutoff_lfo_amp_set);
 
         }
 
@@ -204,6 +225,8 @@ class MyWindow : public Fl_Window {
         float release = win->release_dial->value();
         float lfo_freq = win->lfo_freq_dial->value();
         float lfo_amp = win->lfo_amp_dial->value();
+        float cutoff_lfo_freq = win->cutoff_lfo_freq_dial->value();
+        float cutoff_lfo_amp = win->cutoff_lfo_amp_dial->value();
         float sine_val = win->sine_dial->value();
         float saw_val = win->saw_dial->value();
         float square_val = win->square_dial->value();
@@ -215,10 +238,11 @@ class MyWindow : public Fl_Window {
         float p_saw = saw_val / total;
         float p_square = square_val / total;
 
-        set_filter_alpha(cutoff, Q);
+        set_filter(cutoff, Q);
         set_envelope(attack, decay, sustain, release);
         set_LFO(lfo_freq, lfo_amp);
         set_waveform(p_sin, p_saw, p_square);
+        set_cutoff_lfo(cutoff_lfo_freq, cutoff_lfo_amp);
     }
 };
 
@@ -241,7 +265,7 @@ int main() {
     err = Pa_StartStream(stream);
     if (err != paNoError){ return 1; }
 
-    MyWindow *window = new MyWindow(640, 180);
+    MyWindow *window = new MyWindow(840, 480);
 
     window->end();
     window->show();
