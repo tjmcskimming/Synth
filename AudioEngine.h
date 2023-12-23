@@ -13,7 +13,7 @@ void note_on(unsigned short key, unsigned short velocity);
 
 void note_off(unsigned short key);
 
-void initialize_key_freq_map(std::array<float, 256> map);
+void set_key_freq_map(std::array<float, 256> map);
 
 void set_envelope(float attack, float decay, float sustain, float release);
 

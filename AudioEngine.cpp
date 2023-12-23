@@ -5,6 +5,7 @@
 #include <vector>
 #include <map>
 #include <array>
+#include "public.sdk/source/vst2.x/audioeffectx.h"
 
 enum EnvelopeStage {
     ATTACK, DECAY, SUSTAIN, RELEASE
@@ -150,7 +151,7 @@ void update_sounds() {
             // Sound is active, but key is not pressed. Restart sound
             // without doing a step function on the volume or phase
             Sound& sound = *playing_sounds[note_on_buffer[i].key];
-            float max_vol = note_on_buffer[i].velocity / 255;
+            float max_vol = note_on_buffer[i].velocity / 255.0f;
             // leave phase and volume alone
             sound.note_on = true;
             sound.stage = ATTACK;
@@ -228,6 +229,8 @@ static float last_input = 0.0f;
 static float last_input2 = 0.0f;
 static float last_output = 0.0f;
 static float last_output2 = 0.0f;
+
+
 int audioCallback(const void *inputBuffer, void *outputBuffer,
                   unsigned long framesPerBuffer,
                   const PaStreamCallbackTimeInfo *timeInfo,
@@ -247,7 +250,9 @@ int audioCallback(const void *inputBuffer, void *outputBuffer,
         float sample = 0.0;
         for (size_t j = 0; j < playing_sounds.size(); ++j) {
             auto& opt_sound = playing_sounds[j];
-            if (!opt_sound.has_value()) continue;
+            if (!opt_sound.has_value()){
+                continue;
+            }
             Sound& sound = opt_sound.value();
             sound.vol = std::clamp(sound.vol + sound.vol_step, 0.0f, sound.max_vol);
             sample += p_sin * sound.vol * static_cast<float>(std::sin(sound.phase));
@@ -284,12 +289,14 @@ int audioCallback(const void *inputBuffer, void *outputBuffer,
 
 
 
+
+
 void set_LFO(float frequency, float magnitude) {
     vol_lfo.frequency = frequency;
     vol_lfo.amplitude = magnitude;
 }
 
-void initialize_key_freq_map(std::array<float, 256> map) {
+void set_key_freq_map(std::array<float, 256> map) {
     key_freq_map = map;
 }
 
